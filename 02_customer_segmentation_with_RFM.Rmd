@@ -1,0 +1,430 @@
+---
+title: "Segmentação de Clientes usando Análise RFM"
+author: "Reinaldo Zezela"
+date: '2022-07-09'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Resumo
+
+No presente Post, vamos explorar alguns conceitos e análises relecionados com **RFM**. Vamos abordar, o que é ***RFM** e como podemos usar esses parâmetros para segmentar os clientes e orientar as campanhas de marketing com base no *RFM scores*.
+
+Portanto, vamos começar por definir o que é **RFM** e por que é importante.
+
+
+## 1.0 Introdução
+
+### 1.1 O que é RFM?
+
+**RFM** é um método usado para analisar o valor do cliente. **RFM** significa Recente, Frequência e Valor Monetário, isto é *Recency, Frequency and Monetary*.
+
+*RECENCY*: Há quanto tempo o cliente visitou nosso site ou há quanto tempo um cliente comprou o nosso produto?
+
+**Frequência**: com que frequência eles visitam ou com que frequência compram?
+
+**Valor Monetário**: quanta receita recebemos da visita deles ou quanto eles gastam quando compram?
+
+
+### 1.2 Qual é a importância de Análise RFM?
+
+A **Análise RFM** é uma estrutura de marketing usada para entender e analisar o comportamento do cliente com base nos três factores acima descritos, Recente, Frequência e Valor Monetário (RFM).
+
+A *Análise RFM* ajudará as empresas a segmentar sua base de clientes em diferentes grupos homogêneos para que possam dedicar-se e direccionar diferentes estratégias de marketing para cada grupo.
+
+
+### 1.3 Aplicação de RFM em uma base de dados
+
+Para demonstrar a aplicabilidade de Análise RFM, seleccionamos a seguinte base de dados disponível publicamente em https://www.kaggle.com/datasets/vijayuv/onlineretail: 
+- Este conjunto de dados contém todas as compras feitas por uma empresa de venda a grosso & Retalho online com sede no Reino Unido durante um período de oito meses.
+
+Portanto, vamos nos concentrar em segmentar os clientes com base nos seus comportamentos de compras, isto é vamos determinar os parâmetros RFM de cada cliente tendo em conta as suas transacções históricas.
+
+
+## 2.0 Análise RFM 
+
+Carregar os dados
+
+```{r}
+# carregar os dados
+library(tidyverse) # para manipulação de dados
+
+retails_dat <- read.csv(file = "00_data/OnlineRetail.csv")
+
+retails_dat %>% 
+    glimpse()
+
+```
+
+### 2.1 Examinar os dados
+
+Examinando os dados notamos que, a variável *InvoiceDate* deve ser transformada para o tipo *date()*. E optamos por criar uma nova variável *created_at* para manipularmos os dados.
+
+Também, vamos converter o tipo de dados da variável *CustomerID* para *factor*, visto que este não será usado para efeitos de cálculos.
+
+```{r}
+# create new data type
+retails_dat$created_at <- lubridate::mdy_hm(retails_dat$InvoiceDate)
+
+# convert to date type
+retails_dat$created_at <- as.Date(retails_dat$created_at)
+
+retails_dat <-
+    retails_dat %>%
+    mutate_if(is.character, as.factor)
+
+retails_dat$CustomerID <- as.factor(retails_dat$CustomerID)
+
+retails_dat %>%
+    glimpse()
+```
+
+
+
+Também, podemos ter o resumo das principais estatísticas.
+```{r}
+retails_dat %>% summary()
+```
+
+Entretanto, há $135080$ registos cujo *CustomerID* possui valores nulos. Portanto, estes serão removidos.
+```{r}
+# excluir observacoes sem CustomerID
+retails_dat <- retails_dat[complete.cases(retails_dat$CustomerID), ]
+
+retails_dat %>% 
+    glimpse()
+```
+
+
+### 2.2 Análise Exploratória de Dados
+
+Vamos verificar o nível de vendas para cada categoria de produto e as respectivas quantidades vendidas. Portanto, vamos usar o pacote *ggplot2* para visualizar os dados.
+
+```{r}
+top50_produto_categoria_tbl <-
+    retails_dat %>%
+    group_by(Description) %>%
+    summarise(Total_Amount = sum(UnitPrice * Quantity)) %>%
+    arrange(desc(Total_Amount)) %>%
+    # top50 categoria de produto
+    head(n = 50) %>%
+    ungroup()
+
+top50_produto_categoria_tbl
+```
+
+Graficamente, representamos de seguinte modo:
+```{r}
+p <- ggplot(data = top50_produto_categoria_tbl, aes(x = reorder(Description, Total_Amount), y = Total_Amount)) +
+  geom_col(fill="steelblue") +
+    # Outside bars
+    # geom_text(aes(label=percent), vjust=-0.3, size=3.5) +
+    geom_text(aes(label = scales::comma(Total_Amount, accuracy = 1)), vjust = 0.5, hjust = 1.2, color = "white", size = 3) +
+    labs( x = "Categoria de Produtos", 
+          y = "Montante em Libras (GBP)",
+          title = "Produtos com maior Rentabilidade",
+          subtitle = "online retail company based in the UK") +
+        theme_minimal() +
+    scale_y_continuous(labels = scales::label_comma())
+
+# Horizontal bar plot
+p + coord_flip()
+```
+
+Quantidade vendida por cada categoria de produto
+```{r}
+top50_quantidade_produto_tbl <-
+    retails_dat %>%
+    group_by(Description) %>%
+    summarise(total_quantity = sum(Quantity)) %>%
+    arrange(desc(total_quantity)) %>%
+    head(n = 50) %>%
+    ungroup()
+
+top50_quantidade_produto_tbl
+```
+
+Graficamente:
+```{r}
+p <- ggplot(data = top50_quantidade_produto_tbl, aes(x = reorder(Description, total_quantity), y = total_quantity)) +
+  geom_col(fill="steelblue") +
+    # Outside bars
+    # geom_text(aes(label=percent), vjust=-0.3, size=3.5) +
+    geom_text(aes(label = scales::comma(total_quantity, accuracy = 1)), vjust = 0.5, hjust = 1.2, color = "white", size = 3) +
+    labs( x = "Categoria de Produtos", 
+          y = "Quantidade vendidas",
+          title = "Quantidade/unidades de produtos mais vendidos",
+          subtitle = "online retail UK company") +
+        theme_minimal() +
+    scale_y_continuous(labels = scales::label_comma())
+
+# Horizontal bar plot
+p + coord_flip()
+```
+
+Como podem ter notado, a quantidade/unidades de produtos vendidos não traz *insights* para o negócio, ou seja não é possivel saber se estes são os produtos mais solicitados pelos diversos clientes. Este resultado pode ser influenciado por alguns clientes que efectuam grandes compras. Em outras palavras, isso é diferente de dizer que há muita procura por aqueles produtos ou que existem muitos clientes procurando por esses produtos. 
+
+Dito isso, o nosso foco será identificar os produtos com maior rotactividade, isto é aqueles produtos que são mais solicitados pelos clientes. Portanto, vamos nos basear no número de pedidos ou ordens de compras feitas pelos clientes. Para tal, vamos usar a função *count()* em **R**.
+
+```{r}
+# os produtos mais solicitados pelos clientes
+top50_requested_product_tbl <-
+    retails_dat %>%
+    count(Description) %>%
+    arrange(desc(n)) %>%
+    head(50)
+
+top50_requested_product_tbl
+
+```
+
+Graficamente:
+```{r}
+p <- ggplot(data = top50_requested_product_tbl, aes(x = reorder(Description, n), y = n)) +
+  geom_col(fill="steelblue") +
+    # Outside bars
+    # geom_text(aes(label=percent), vjust=-0.3, size=3.5) +
+    geom_text(aes(label = scales::comma(n, accuracy = 1)), vjust = 0.5, hjust = 1.2, color = "white", size = 3) +
+    labs( x = "Categoria de Produtos", 
+          y = "Número de Pedidos",
+          title = "Frequência de produtos mais solicitados pelos clientes",
+          subtitle = "online retail") +
+        theme_minimal() +
+    scale_y_continuous(labels = scales::label_comma())
+
+# Horizontal bar plot
+p + coord_flip()
+
+```
+
+Da mesma forma, podemos verificar qual região possui maior base de clientes.
+
+```{r}
+customer_base_country_tbl <-
+    retails_dat %>%
+    distinct(CustomerID, Country) %>%
+    count(Country) %>%
+    arrange(desc(n))
+
+customer_base_country_tbl
+```
+
+Graficamente:
+```{r}
+p <- ggplot(data = customer_base_country_tbl, aes(x = reorder(Country, n), y = n)) +
+  geom_col(fill="steelblue") +
+    # Outside bars
+    # geom_text(aes(label=percent), vjust=-0.3, size=3.5) +
+    geom_text(aes(label = scales::comma(n, accuracy = 1)), vjust = 0.5, hjust = 1.2, color = "white", size = 3) +
+    labs( x = "Paises", 
+          y = "Número de Clientes",
+          title = "Base de Clientes por paises",
+          subtitle = "online retail UK company") +
+        theme_minimal() +
+    scale_y_continuous(labels = scales::label_comma())
+
+# Horizontal bar plot
+p + coord_flip()
+```
+
+
+### 2.3 Determinar os parâmetros *RFM* em R
+
+Primeiro, vamos definir o periódo em análise bem como a **data de referência** para as análises.
+```{r}
+range(retails_dat$created_at)
+```
+ O output mostra transacções desde *"2010-12-01"* para *"2011-12-09"*. Então, vamos considerar data de referência para análise o dia *2011-12-10*.
+ 
+Data de Referência: 
+```{r}
+# date of analysis
+retails_dat$date_of_analysis <- as.Date('2011-12-10')
+```
+
+Portanto, vamos calcular a diferença entre a data de referência, *2011-12-10* e as datas dos pedidos de compras.
+```{r}
+# calcular a diferença entre a date de referência e as datas dos pedidos de compras
+retails_dat$days_since <-
+    as.numeric(
+        retails_dat$date_of_analysis - retails_dat$created_at
+    ) 
+
+retails_dat %>% 
+    glimpse()
+```
+
+Portanto, agora podemos calcular os parâmetros RFM.
+
+*Recency (recente)* é a diferença entre a **data de referência** e a data em que o cliente fez a última compra, isto é a compra mais recente.
+
+Vamos obter a *Frequency (Frequência)* somando o número de pedidos feitos por cliente.
+
+*Monetary (Valor Monetário)* será calculado somando o valor total gasto por cada cliente durante o periódo em análise.
+
+
+```{r}
+# analysis
+customer_analysis_tbl <-
+    retails_dat %>%
+    group_by(CustomerID) %>%
+    summarise(
+        recency = min(days_since),
+        first_purchase = max(days_since),
+        frequency = n(),
+        monetary = sum(Quantity*UnitPrice)
+    ) %>%
+    filter(monetary > 0) %>% 
+    ungroup()
+
+
+customer_analysis_tbl %>% 
+    glimpse()
+
+```
+
+Vamos examinar os dados da tabela *customer_analysis_tbl*.
+```{r}
+# summary statistics
+customer_analysis_tbl %>% 
+    summary()
+```
+
+O output mostra que o seguinte:
+    - **Recency (Recente)**: há clientes que não fazem compra há mais de $374$ dias, portanto o periódo mais longo. E, o valor mediano é de $50$ dias;
+    - **Frequency (Frequência)**: há clientes que efectuaram próximo de $8,000$ pedidos durante os 12 meses. O valor mediano é de $43$ pedidos por cliente.
+    - **Monetary (Valor Monetário)**: há um cliente com o valor total de compra de $279,489.00$ GBP nos 12 meses do periódo em análise. O valor mediano gasto por cliente é de $658.30$ GBP. Também, mostra que *75%* dos clientes gastam menos de $1,627.10$ GBP.
+    - **first_purchase**: será útil para identificar os novos clientes.
+    
+Nós usamos o valor mediano, visto que o valor médio pode ser influenciado pelos valores extremos.
+
+
+Portanto, vamos usar o histograma para visualizar graficamente os parâmetros RFM.
+
+
+#### 2.3.1 Histograma de parâmetro *Recency* (Recente)
+
+```{r}
+# Histogram Recency
+ggplot(data = customer_analysis_tbl, aes(x = recency)) +
+    geom_histogram(bins = 50, color = "#000000", fill = "#0099F8") +
+    labs(
+        title = "Compras online mais Recentes em relação à data de analise 2011-12-10",
+        subtitle = "online retail company based in the UK",
+        caption = "Source: onlineRetails UK dataset",
+        x = "Recente (número de dias)",
+        y = "Numero de Clientes"
+    ) +
+    theme_classic() +
+    theme(
+        plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 10, face = "bold"),
+        plot.caption = element_text(face = "italic")
+    )
+
+
+```
+
+Verifica-se que, há muitos clientes que realizam compras dentro de 03 meses. Contudo, também há clientes que não fazem compras há mais de 01 ano. Desta forma, podemos identificar os clientes e direcioná-los de forma diferente. Mas, é muito cedo para dizer apenas com o parâmetro de *Recency*.
+
+#### 2.3.2 Histograma de parâmetro *Frequency* (Frequência)
+
+```{r}
+# Histogram Frequency
+ggplot(data = customer_analysis_tbl, aes(x = frequency)) +
+    geom_histogram(bins = 50, color = "#000000", fill = "#0099F8") +
+    labs(
+        title = "Frequências de compras online em relação à data de analise 2011-12-10",
+        subtitle = "online retail UK company",
+        caption = "Source: onlineRetails UK dataset",
+        x = "Frequência",
+        y = "Número de Clientes"
+    ) +
+    scale_x_continuous(labels = scales::comma) +
+    # scale_x_log10() +
+    theme_classic() +
+    theme(
+        plot.title = element_text(color = "#0099F8", size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 10, face = "bold"),
+        plot.caption = element_text(face = "italic")
+    )
+
+```
+O ouptup mostra, uma difereça abismal entre as frequências de compras dos clientes. Por exemplo, um cliente com $8,000$ pedidos é um valor extremamente elevado e distante da maioria dos clientes.
+
+#### 2.3.3 Histograma de parâmetro *Monetary* (Valor Monetário)
+
+```{r}
+# Histogram Monetary
+ggplot(data = customer_analysis_tbl, aes(x = monetary)) +
+    geom_histogram(bins = 50, color = "#000000", fill = "#0099F8") +
+    labs(
+        title = "Montante gasto pelos clientes nas compras online durante o periódo em análise",
+        subtitle = "online retail UK company",
+        caption = "Source: onlineRetails UK dataset",
+        x = "Monetary",
+        y = "Número de Clientes"
+    ) +
+    scale_x_continuous(labels = scales::comma) +
+    # scale_x_log10() +
+    theme_classic() +
+    theme(
+        plot.title = element_text(size = 12, face = "bold"),
+        plot.subtitle = element_text(size = 10, face = "bold"),
+        plot.caption = element_text(face = "italic")
+    )
+
+```
+Aqui, também mostra o quanto a distribuição é afectada pelos valores extremos. Portanto, a maioria dos clientes gastou menos de $1,000$ GBP durante o periodo em análise.
+
+
+#### 2.3.4 Scatter Plot
+
+Quando temos mais de duas variáveis, escolhemos um gráfico de dispersão para analisar.
+
+Recency Vs frequency
+
+```{r}
+ggplot(data = customer_analysis_tbl, aes(x = recency, y = frequency)) +
+    geom_point(alpha = 1/10) +
+    scale_x_continuous(labels = scales::comma) +
+    # scale_x_log10() +
+    theme_minimal()
+```
+Podemos constatar que, os clientes cujo *Recency* é inferior a um mês têm a **frequência** elevada, ou seja, os clientes compram mais quando o seu valor de *Recency* é menor.
+
+
+Frequency Vs Monetary
+
+```{r}
+ggplot(data = customer_analysis_tbl, aes(x = monetary, y = frequency)) +
+    geom_point(alpha = 1/10) +
+    scale_x_continuous(labels = scales::comma) +
+    # scale_x_log10() +
+    # scale_y_log10() +
+    theme_minimal()
+```
+Podemos constatar que, os clientes que compram com mais frequência gastam menos. Isso pode explicado pelo facto de comprarem frequentemente produtos mais baratos.
+
+
+Recency Vs Monetary
+```{r}
+ggplot(data = customer_analysis_tbl, aes(x = recency, y = monetary), color = frequency) +
+    geom_point(alpha = 1/10) +
+    scale_y_continuous(labels = scales::comma) +
+    # scale_x_log10() +
+    # scale_y_log10() +
+    theme_minimal()
+```
+
+
+### 2.4 Como Segmentar os Clientes
+
+
+
+Não podemos chegar a nenhuma conclusão com base em apenas os parâmetros **RFM** de forma independente. Portanto, temos que tomar em conta todos os 03 factores.
+
+
